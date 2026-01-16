@@ -9,15 +9,32 @@ Key Concepts:
     - asyncio for concurrent I/O operations
     - Proper error handling for network requests
     - Data validation and normalization
+    - Real market data via yfinance
+    - Synthetic data generation for testing
 """
 
 import asyncio
 from dataclasses import dataclass
 from datetime import datetime, timedelta
+from enum import Enum
 from typing import Dict, List, Optional
+import concurrent.futures
 
 import numpy as np
 import pandas as pd
+
+# Try to import yfinance, but don't fail if not installed
+try:
+    import yfinance as yf
+    YFINANCE_AVAILABLE = True
+except ImportError:
+    YFINANCE_AVAILABLE = False
+
+
+class DataSource(Enum):
+    """Available data sources."""
+    SYNTHETIC = "synthetic"  # Generated fake data (no internet required)
+    YFINANCE = "yfinance"    # Real data from Yahoo Finance
 
 
 @dataclass
@@ -65,21 +82,29 @@ class MarketDataHandler:
         1. Async/await patterns for non-blocking I/O
         2. Concurrent task execution with asyncio.gather
         3. Data validation and error handling
-        4. Synthetic data generation for testing
+        4. Real data fetching via yfinance
+        5. Synthetic data generation for testing
     
-    In production, this would connect to real market data APIs
-    (e.g., Interactive Brokers, Bloomberg, or crypto exchanges).
+    Data Sources:
+        - SYNTHETIC: Generated data using Geometric Brownian Motion (no internet)
+        - YFINANCE: Real market data from Yahoo Finance (requires internet)
     
     Example:
-        >>> handler = MarketDataHandler()
+        >>> # Using real data
+        >>> handler = MarketDataHandler(source=DataSource.YFINANCE)
         >>> async def fetch():
         ...     data = await handler.stream_market_data(['AAPL', 'GOOGL'])
         ...     return data
         >>> results = asyncio.run(fetch())
+        
+        >>> # Using synthetic data (offline/testing)
+        >>> handler = MarketDataHandler(source=DataSource.SYNTHETIC)
+        >>> results = asyncio.run(handler.stream_market_data(['AAPL']))
     """
     
     def __init__(
         self,
+        source: DataSource = DataSource.SYNTHETIC,
         base_volatility: float = 0.02,
         base_drift: float = 0.0001,
         random_seed: Optional[int] = None
@@ -88,13 +113,25 @@ class MarketDataHandler:
         Initialize the data handler.
         
         Args:
+            source: Data source - SYNTHETIC or YFINANCE
             base_volatility: Daily volatility for synthetic data generation
             base_drift: Daily drift (expected return) for synthetic data
             random_seed: Seed for reproducible synthetic data
+        
+        Raises:
+            ImportError: If YFINANCE source is selected but yfinance not installed
         """
+        self.source = source
         self.base_volatility = base_volatility
         self.base_drift = base_drift
         self._cache: Dict[str, MarketData] = {}
+        
+        # Validate yfinance availability
+        if source == DataSource.YFINANCE and not YFINANCE_AVAILABLE:
+            raise ImportError(
+                "yfinance is required for real market data. "
+                "Install with: pip install yfinance"
+            )
         
         if random_seed is not None:
             np.random.seed(random_seed)
@@ -155,9 +192,7 @@ class MarketDataHandler:
         """
         Fetch data for a single symbol.
         
-        In production, this would make an API call to a market data provider.
-        For demonstration, we generate realistic synthetic data using
-        Geometric Brownian Motion (GBM).
+        Routes to appropriate data source (yfinance or synthetic).
         
         Args:
             symbol: Trading symbol
@@ -167,21 +202,77 @@ class MarketDataHandler:
         Returns:
             MarketData object with OHLCV data
         """
-        cache_key = f"{symbol}_{days}"
+        cache_key = f"{self.source.value}_{symbol}_{days}"
         
         if use_cache and cache_key in self._cache:
             return self._cache[cache_key]
         
-        # Simulate network latency (would be real API call in production)
-        await asyncio.sleep(0.01)
-        
-        # Generate synthetic data using Geometric Brownian Motion
-        data = self._generate_synthetic_data(symbol, days)
+        # Fetch based on data source
+        if self.source == DataSource.YFINANCE:
+            data = await self._fetch_yfinance_data(symbol, days)
+        else:
+            # Simulate network latency for synthetic data
+            await asyncio.sleep(0.01)
+            data = self._generate_synthetic_data(symbol, days)
         
         if use_cache:
             self._cache[cache_key] = data
         
         return data
+    
+    async def _fetch_yfinance_data(
+        self,
+        symbol: str,
+        days: int
+    ) -> MarketData:
+        """
+        Fetch real market data from Yahoo Finance.
+        
+        Uses a thread pool executor to run yfinance (which is blocking)
+        in a non-blocking way.
+        
+        Args:
+            symbol: Trading symbol (e.g., 'AAPL', 'GOOGL', 'MSFT')
+            days: Number of trading days of history
+        
+        Returns:
+            MarketData object with real OHLCV data
+        
+        Raises:
+            ValueError: If no data is returned for the symbol
+        """
+        # yfinance is blocking, so run in thread pool to keep async
+        loop = asyncio.get_event_loop()
+        
+        def fetch_blocking():
+            # Calculate period needed (add buffer for weekends/holidays)
+            calendar_days = int(days * 1.5) + 10
+            
+            ticker = yf.Ticker(symbol)
+            df = ticker.history(period=f"{calendar_days}d")
+            
+            if df.empty:
+                raise ValueError(f"No data returned for symbol: {symbol}")
+            
+            # Limit to requested number of trading days
+            df = df.tail(days)
+            
+            return df
+        
+        # Run blocking call in thread pool
+        with concurrent.futures.ThreadPoolExecutor() as executor:
+            df = await loop.run_in_executor(executor, fetch_blocking)
+        
+        # Convert to MarketData
+        return MarketData(
+            symbol=symbol,
+            timestamp=df.index.to_pydatetime(),
+            open=df['Open'].values,
+            high=df['High'].values,
+            low=df['Low'].values,
+            close=df['Close'].values,
+            volume=df['Volume'].values.astype(int)
+        )
     
     def _generate_synthetic_data(
         self,
@@ -297,31 +388,89 @@ class MarketDataHandler:
 
 # Example usage demonstrating async patterns
 async def example_usage():
-    """Demonstrate async data fetching."""
-    handler = MarketDataHandler(random_seed=42)
+    """Demonstrate async data fetching with both data sources."""
     
-    # Fetch data for multiple symbols concurrently
     symbols = ['AAPL', 'GOOGL', 'MSFT', 'AMZN', 'META']
     
-    print(f"Fetching data for {len(symbols)} symbols concurrently...")
-    start_time = asyncio.get_event_loop().time()
+    # =========================================================================
+    # Example 1: Synthetic Data (no internet required)
+    # =========================================================================
+    print("=" * 60)
+    print("Example 1: SYNTHETIC DATA")
+    print("=" * 60)
     
-    data = await handler.stream_market_data(symbols, days=252)
+    handler_synthetic = MarketDataHandler(
+        source=DataSource.SYNTHETIC,
+        random_seed=42
+    )
     
-    elapsed = asyncio.get_event_loop().time() - start_time
-    print(f"Fetched all data in {elapsed:.3f} seconds")
+    print(f"\nFetching synthetic data for {len(symbols)} symbols...")
+    data = await handler_synthetic.stream_market_data(symbols, days=252)
     
-    # Display summary
     for symbol, market_data in data.items():
         returns = np.diff(np.log(market_data.close))
         annual_vol = np.std(returns) * np.sqrt(252)
         total_return = (market_data.close[-1] / market_data.close[0]) - 1
         
-        print(f"\n{symbol}:")
-        print(f"  Days: {len(market_data)}")
-        print(f"  Price Range: ${market_data.low.min():.2f} - ${market_data.high.max():.2f}")
-        print(f"  Annual Volatility: {annual_vol:.1%}")
-        print(f"  Total Return: {total_return:.1%}")
+        print(f"  {symbol}: ${market_data.close[-1]:.2f} | "
+              f"Vol: {annual_vol:.1%} | Return: {total_return:+.1%}")
+    
+    # =========================================================================
+    # Example 2: Real Data from Yahoo Finance
+    # =========================================================================
+    print("\n" + "=" * 60)
+    print("Example 2: REAL DATA (Yahoo Finance)")
+    print("=" * 60)
+    
+    if YFINANCE_AVAILABLE:
+        try:
+            handler_real = MarketDataHandler(source=DataSource.YFINANCE)
+            
+            print(f"\nFetching real data for {len(symbols)} symbols...")
+            real_data = await handler_real.stream_market_data(symbols, days=60)
+            
+            for symbol, market_data in real_data.items():
+                returns = np.diff(np.log(market_data.close))
+                annual_vol = np.std(returns) * np.sqrt(252)
+                total_return = (market_data.close[-1] / market_data.close[0]) - 1
+                
+                print(f"  {symbol}: ${market_data.close[-1]:.2f} | "
+                      f"Vol: {annual_vol:.1%} | Return: {total_return:+.1%}")
+                
+        except Exception as e:
+            print(f"\n  Could not fetch real data: {e}")
+            print("  (This is expected if you don't have internet access)")
+    else:
+        print("\n  yfinance not installed. Install with: pip install yfinance")
+
+
+async def quick_demo_real_data():
+    """
+    Quick demo to fetch real data for a single stock.
+    
+    Usage:
+        >>> import asyncio
+        >>> from src.data_handler import quick_demo_real_data
+        >>> asyncio.run(quick_demo_real_data())
+    """
+    if not YFINANCE_AVAILABLE:
+        print("Install yfinance first: pip install yfinance")
+        return
+    
+    handler = MarketDataHandler(source=DataSource.YFINANCE)
+    data = await handler.stream_market_data(['AAPL'], days=30)
+    
+    aapl = data['AAPL']
+    df = aapl.to_dataframe()
+    
+    print(f"\nAAPL - Last 30 Trading Days")
+    print("-" * 40)
+    print(f"Latest Close: ${aapl.close[-1]:.2f}")
+    print(f"30-Day High:  ${aapl.high.max():.2f}")
+    print(f"30-Day Low:   ${aapl.low.min():.2f}")
+    print(f"Avg Volume:   {aapl.volume.mean():,.0f}")
+    
+    return df
 
 
 if __name__ == "__main__":
