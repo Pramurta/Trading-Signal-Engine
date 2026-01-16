@@ -9,7 +9,7 @@ This script demonstrates all components of the trading signal engine:
     4. Backtesting
     5. Results visualization
 
-Run with: python examples/run_backtest.py
+Run with: python run_backtest.py
 """
 
 import asyncio
