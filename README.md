@@ -1,200 +1,109 @@
-# Algorithmic Trading Signal Engine
+# Trading Signal Engine
+
+[![CI](https://github.com/Pramurta/Trading-Signal-Engine/actions/workflows/ci.yml/badge.svg)](https://github.com/Pramurta/Trading-Signal-Engine/actions/workflows/ci.yml)
+[![Python 3.11](https://img.shields.io/badge/python-3.11-blue.svg)](https://www.python.org/downloads/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 A production-ready Python framework for real-time market data processing, statistical signal generation, and risk-managed trading strategy development.
 
-## Overview
-
-This project demonstrates core quantitative development skills:
-- **Asynchronous data processing** for concurrent market data streams
-- **Statistical signal generation** using proven technical indicators
-- **Risk management** with position sizing and drawdown controls
-- **Vectorized backtesting** for fast historical strategy evaluation
-
 ## Architecture
 
+```mermaid
+graph LR
+    subgraph Core Engine
+        DH[Data Handler<br/>async I/O] --> SE[Signal Engine<br/>Z-Score, RSI, MACD, Bollinger]
+        SE --> RM[Risk Manager<br/>Kelly Criterion, Vol Scaling]
+        RM --> ST[Strategy<br/>Orchestrator]
+        ST --> BT[Backtester<br/>Vectorized]
+    end
+
+    subgraph API Layer
+        FA[FastAPI<br/>/signals /backtest /health]
+    end
+
+    subgraph Dashboard
+        SL[Streamlit<br/>Signal Explorer, Backtest Runner]
+    end
+
+    ST --> FA
+    FA --> SL
 ```
-┌─────────────────┐     ┌─────────────────┐     ┌─────────────────┐
-│   Data Handler  │────▶│  Signal Engine  │────▶│  Risk Manager   │
-│   (async I/O)   │     │  (statistics)   │     │  (sizing/limits)│
-└─────────────────┘     └─────────────────┘     └─────────────────┘
-                                │
-                                ▼
-                        ┌─────────────────┐
-                        │    Strategy     │
-                        │  (orchestrator) │
-                        └─────────────────┘
-                                │
-                                ▼
-                        ┌─────────────────┐
-                        │   Backtester    │
-                        │  (vectorized)   │
-                        └─────────────────┘
-```
 
-## Key Features
+## Features
 
-### 1. Asynchronous Market Data Processing
-Non-blocking concurrent data fetching using `asyncio` for handling multiple symbols simultaneously without I/O bottlenecks.
-
-### 2. Statistical Signal Generators
-- **Z-Score**: Mean reversion signal measuring standard deviations from rolling mean
-- **RSI (Relative Strength Index)**: Momentum oscillator for overbought/oversold conditions
-- **Bollinger Bands**: Volatility-adjusted price channels
-- **MACD**: Trend-following momentum indicator
-
-### 3. Risk Management
-- **Kelly Criterion**: Optimal position sizing based on win rate and payoff ratio
-- **Volatility Scaling**: Position sizes adjusted for current market volatility
-- **Maximum Drawdown Limits**: Automatic risk reduction during drawdowns
-
-### 4. Vectorized Backtesting
-NumPy-based backtesting engine for fast historical simulation with realistic transaction costs.
-
-## Installation
-
-```bash
-# Clone the repository
-git clone https://github.com/yourusername/trading_signal_engine.git
-cd trading_signal_engine
-
-# Create virtual environment
-python -m venv venv
-source venv/bin/activate  # On Windows: venv\Scripts\activate
-
-# Install dependencies
-pip install -r requirements.txt
-```
+- **Asynchronous data processing** — concurrent market data fetching via asyncio
+- **Statistical signals** — Z-Score, RSI, Bollinger Bands, MACD with configurable weights
+- **Risk management** — Kelly Criterion, volatility scaling, max drawdown controls
+- **Vectorized backtesting** — NumPy-based engine for fast historical simulation
+- **REST API** — FastAPI backend with auto-generated Swagger docs at `/docs`
+- **Interactive dashboard** — Streamlit UI with Plotly charts
+- **Containerized** — Docker Compose for local dev, Render.com for cloud deployment
 
 ## Quick Start
 
-```python
-import asyncio
-from src.data_handler import MarketDataHandler
-from src.signals import SignalEngine
-from src.risk_manager import RiskManager
-from src.strategy import TradingStrategy
+### Local Development
 
-# Initialize components
-data_handler = MarketDataHandler()
-signal_engine = SignalEngine()
-risk_manager = RiskManager(max_position_pct=0.1, max_drawdown_pct=0.15)
+```bash
+# Clone and install
+git clone https://github.com/Pramurta/Trading-Signal-Engine.git
+cd Trading-Signal-Engine
+python -m venv .venv && source .venv/bin/activate  # Windows: .venv\Scripts\activate
+pip install -r requirements.txt
 
-# Create strategy
-strategy = TradingStrategy(
-    data_handler=data_handler,
-    signal_engine=signal_engine,
-    risk_manager=risk_manager
-)
+# Run API
+uvicorn api.main:app --reload
 
-# Run backtest
-async def main():
-    symbols = ['AAPL', 'GOOGL', 'MSFT']
-    results = await strategy.run_backtest(symbols, days=252)
-    print(f"Sharpe Ratio: {results['sharpe_ratio']:.2f}")
-    print(f"Total Return: {results['total_return']:.2%}")
-
-asyncio.run(main())
+# Run dashboard (in another terminal)
+streamlit run dashboard/app.py
 ```
 
-## Project Structure
+### Docker
 
-```
-trading_signal_engine/
-├── src/
-│   ├── __init__.py
-│   ├── data_handler.py      # Async market data processing
-│   ├── signals.py           # Statistical signal generators
-│   ├── risk_manager.py      # Position sizing & risk limits
-│   ├── strategy.py          # Trading strategy orchestration
-│   └── backtest.py          # Vectorized backtesting engine
-├── tests/
-│   ├── __init__.py
-│   └── test_signals.py      # Unit tests for signal generators
-├── examples/
-│   └── run_backtest.py      # Demo script with visualization
-├── README.md
-└── requirements.txt
+```bash
+docker compose up --build
 ```
 
-## Running Tests
+- API: http://localhost:8000
+- Dashboard: http://localhost:8501
+- API Docs: http://localhost:8000/docs
+
+### Run Backtest Demo
+
+```bash
+python run_backtest.py
+```
+
+## API Endpoints
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/health` | Health check |
+| `POST` | `/signals/generate` | Generate signals for given symbols |
+| `POST` | `/backtest/run` | Run backtest with performance metrics |
+| `GET` | `/backtest/report/{id}` | Retrieve cached backtest result |
+
+## Testing
 
 ```bash
 # Run all tests
-python -m pytest tests/ -v
+python -m pytest src/tests/ api/tests/ -v
 
 # Run with coverage
-python -m pytest tests/ -v --cov=src
+python -m pytest --cov=src --cov-fail-under=80
+
+# Lint and format
+ruff check . && ruff format --check .
+
+# Type check
+mypy src/ api/
 ```
 
-## Example Output
+## Deploy to Render
 
-```
-================================================================================
-                    TRADING SIGNAL ENGINE - BACKTEST RESULTS
-================================================================================
+This repo includes a `render.yaml` blueprint. Fork the repo, connect to Render, and deploy both services with one click.
 
-Performance Metrics:
-  Total Return:      23.45%
-  Sharpe Ratio:      1.87
-  Max Drawdown:      -8.32%
-  Win Rate:          54.2%
-  Profit Factor:     1.65
-
-Risk Metrics:
-  Volatility (Ann):  12.4%
-  VaR (95%):         -1.82%
-  Avg Position Size: 8.5%
-```
-
-## Technical Concepts
-
-### Z-Score Signal
-The Z-score measures how many standard deviations the current price is from its rolling mean:
-
-```
-z = (price - rolling_mean) / rolling_std
-```
-
-Trading logic:
-- Z < -2: Strong buy signal (price unusually low)
-- Z > +2: Strong sell signal (price unusually high)
-
-### Kelly Criterion
-Optimal fraction of capital to risk:
-
-```
-f* = (p * b - q) / b
-
-where:
-  p = probability of winning
-  q = probability of losing (1 - p)
-  b = win/loss ratio
-```
-
-### Volatility-Adjusted Position Sizing
-Position size inversely proportional to recent volatility:
-
-```
-position_size = target_risk / (volatility * price)
-```
-
-## Performance Considerations
-
-- **Vectorized operations**: All signal calculations use NumPy for speed
-- **Async I/O**: Non-blocking data fetching for multiple symbols
-- **Memory efficiency**: Rolling calculations avoid storing full history
-
-## Future Enhancements
-
-- [ ] WebSocket integration for live market data
-- [ ] Multi-asset correlation analysis
-- [ ] Machine learning signal integration
-- [ ] Order execution simulation with slippage models
+> **Note:** Render free tier spins down after 15 minutes of inactivity. First load may take ~30 seconds.
 
 ## License
 
-MIT License - feel free to use and modify for your own projects.
-
-## Author
-
-Built as a demonstration of quantitative development skills for algorithmic trading roles.
+[MIT](LICENSE)
