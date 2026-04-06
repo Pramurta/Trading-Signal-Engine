@@ -290,7 +290,7 @@ class TradingStrategy:
         portfolio = Portfolio(capital=initial_capital)
         equity_curve = [initial_capital]
         daily_returns = []
-        trade_log = []
+        trade_log: list[TradeDecision] = []
 
         # Get common length across all symbols
         min_length = min(len(data.close) for data in market_data.values())

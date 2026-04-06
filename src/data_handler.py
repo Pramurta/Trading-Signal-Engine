@@ -172,9 +172,9 @@ class MarketDataHandler:
         results = await asyncio.gather(*tasks, return_exceptions=True)
 
         # Process results and handle any errors
-        data_dict = {}
+        data_dict: dict[str, MarketData] = {}
         for symbol, result in zip(symbols, results):
-            if isinstance(result, Exception):
+            if isinstance(result, BaseException):
                 print(f"Warning: Failed to fetch {symbol}: {result}")
                 continue
             data_dict[symbol] = result

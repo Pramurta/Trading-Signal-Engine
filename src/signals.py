@@ -463,7 +463,7 @@ class SignalEngine:
         variance = rolling_sq_mean - rolling_mean**2
         variance = np.maximum(variance, 0)  # Handle numerical issues
 
-        return np.sqrt(variance)
+        return np.sqrt(variance)  # type: ignore[no-any-return]
 
     @staticmethod
     def _rolling_max(data: np.ndarray, window: int) -> np.ndarray:

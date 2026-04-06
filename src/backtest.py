@@ -276,7 +276,7 @@ class Backtester:
             max_drawdown_duration=max_dd_duration,
             calmar_ratio=calmar,
             volatility=annual_vol,
-            win_rate=win_rate,
+            win_rate=float(win_rate),
             profit_factor=profit_factor,
             avg_trade_return=avg_trade_return,
             num_trades=num_trades,
@@ -367,7 +367,7 @@ class Backtester:
         signal_generator: Callable[[np.ndarray, dict], np.ndarray],
         param_grid: dict[str, list],
         metric: str = "sharpe_ratio",
-    ) -> tuple[dict, BacktestMetrics]:
+    ) -> tuple[dict, BacktestMetrics | None]:
         """
         Sweep over parameter combinations to find optimal settings.
 
@@ -380,8 +380,8 @@ class Backtester:
         Returns:
             Tuple of (best_params, best_metrics)
         """
-        best_params = None
-        best_metrics = None
+        best_params: dict = {}
+        best_metrics: BacktestMetrics | None = None
         best_value = float("-inf")
 
         param_names = list(param_grid.keys())

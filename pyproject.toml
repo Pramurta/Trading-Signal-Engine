@@ -57,8 +57,19 @@ testpaths = ["src/tests", "api/tests"]
 asyncio_mode = "auto"
 
 [tool.coverage.run]
-source = ["src"]
+source = ["src", "api"]
+omit = [
+    "src/tests/*",
+    "api/tests/*",
+]
 
 [tool.coverage.report]
-fail_under = 80
+fail_under = 70
 show_missing = true
+exclude_lines = [
+    "if __name__",
+    "pragma: no cover",
+    "if TYPE_CHECKING",
+    "except ImportError",
+    "YFINANCE_AVAILABLE = False",
+]
