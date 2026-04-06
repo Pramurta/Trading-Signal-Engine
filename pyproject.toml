@@ -53,7 +53,7 @@ warn_unused_configs = true
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]
-testpaths = ["src/tests"]
+testpaths = ["src/tests", "api/tests"]
 asyncio_mode = "auto"
 
 [tool.coverage.run]
