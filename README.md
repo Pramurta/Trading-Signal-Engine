@@ -98,12 +98,6 @@ ruff check . && ruff format --check .
 mypy src/ api/
 ```
 
-## Deploy to Render
-
-This repo includes a `render.yaml` blueprint. Fork the repo, connect to Render, and deploy both services with one click.
-
-> **Note:** Render free tier spins down after 15 minutes of inactivity. First load may take ~30 seconds.
-
 ## License
 
 [MIT](LICENSE)
