@@ -3,7 +3,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from api.routers import health
+from api.routers import health, signals
 
 app = FastAPI(
     title="Trading Signal Engine API",
@@ -20,3 +20,4 @@ app.add_middleware(
 )
 
 app.include_router(health.router)
+app.include_router(signals.router)
