@@ -80,5 +80,5 @@ if st.sidebar.button("Generate Signals", type="primary"):
             title_text=f"{symbol} — Signal History",
             template="plotly_dark",
         )
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig, width="stretch")
         st.markdown("---")

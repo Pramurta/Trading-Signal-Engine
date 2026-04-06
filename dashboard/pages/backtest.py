@@ -60,7 +60,8 @@ if st.sidebar.button("Run Backtest", type="primary"):
     col4.metric("Win Rate", f"{metrics['win_rate']:.1%}")
 
     col5, col6, col7, col8 = st.columns(4)
-    col5.metric("Profit Factor", f"{metrics['profit_factor']:.2f}")
+    pf = metrics["profit_factor"]
+    col5.metric("Profit Factor", f"{pf:.2f}" if pf is not None else "N/A")
     col6.metric("Trades", str(metrics["num_trades"]))
     col7.metric("Volatility", f"{metrics['volatility']:.2%}")
     col8.metric("VaR (95%)", f"{metrics['var_95']:.2%}")
@@ -84,7 +85,7 @@ if st.sidebar.button("Run Backtest", type="primary"):
         yaxis_title="Portfolio Value ($)",
         xaxis_title="Trading Day",
     )
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, width="stretch")
 
     # Backtest ID for reference
     st.caption(f"Backtest ID: `{data['backtest_id']}`")
