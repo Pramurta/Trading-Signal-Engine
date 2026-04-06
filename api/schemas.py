@@ -1,11 +1,11 @@
 """Pydantic models for API request/response validation."""
 
-from enum import Enum
+from enum import StrEnum
 
 from pydantic import BaseModel, Field
 
 
-class DataSourceEnum(str, Enum):
+class DataSourceEnum(StrEnum):
     synthetic = "synthetic"
     yfinance = "yfinance"
 
