@@ -1,0 +1,23 @@
+services:
+  - type: web
+    name: trading-signal-api
+    runtime: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn api.main:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.11.8"
+
+  - type: web
+    name: trading-signal-dashboard
+    runtime: python
+    buildCommand: pip install streamlit httpx plotly
+    startCommand: streamlit run dashboard/app.py --server.port=$PORT --server.address=0.0.0.0
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.11.8"
+      - key: API_URL
+        fromService:
+          type: web
+          name: trading-signal-api
+          envVarKey: RENDER_EXTERNAL_URL
