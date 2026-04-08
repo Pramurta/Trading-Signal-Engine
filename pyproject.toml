@@ -1,7 +1,7 @@
 [project]
 name = "trading-signal-engine"
 version = "0.1.0"
-description = "Production-ready Python framework for real-time market data processing, statistical signal generation, and risk-managed trading strategy development."
+description = "Signal-driven backtesting engine with async data fetching, technical indicators, and risk management."
 readme = "README.md"
 license = {text = "MIT"}
 requires-python = ">=3.11"
@@ -9,7 +9,6 @@ dependencies = [
     "numpy>=1.24.0",
     "pandas>=2.0.0",
     "yfinance>=0.2.0",
-    "aiohttp>=3.8.0",
 ]
 
 [project.optional-dependencies]
