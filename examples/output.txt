@@ -1,0 +1,15 @@
+AAPL: 252 days, $253.50, vol=28.8%, return=+35.2%
+
+Backtest: 252 days, $100,000
+Final equity: $98,808
+
+Total Return:         -1.19%
+CAGR:                 -1.19%
+Sharpe Ratio:          -4.06
+Sortino Ratio:         -5.34
+Max Drawdown:          2.27%
+Max DD Duration:         195 days
+Volatility:            1.53%
+Win Rate:              48.5%
+Profit Factor:          0.60
+Trades:                   33
