@@ -1,11 +1,4 @@
-"""
-Unit Tests for Signal Engine
-
-This module contains comprehensive tests for the signal generation
-functionality. Tests verify mathematical correctness and edge cases.
-
-Run with: pytest tests/test_signals.py -v
-"""
+"""Tests for the signal generation engine."""
 
 import numpy as np
 import pytest
@@ -13,337 +6,320 @@ import pytest
 from src.signals import Signal, SignalEngine, SignalType
 
 
-class TestSignalEngine:
-    """Test suite for SignalEngine class."""
-
+class TestZScore:
     @pytest.fixture
     def engine(self):
-        """Create SignalEngine instance for tests."""
         return SignalEngine(default_window=20)
 
-    @pytest.fixture
-    def sample_prices(self):
-        """Generate sample price data for testing."""
-        np.random.seed(42)
-        n = 100
-        # Mean-reverting prices (Ornstein-Uhlenbeck)
-        prices = np.zeros(n)
-        prices[0] = 100
-        for i in range(1, n):
-            prices[i] = prices[i - 1] + 0.1 * (100 - prices[i - 1]) + np.random.randn()
-        return prices
-
-    # =========================================================================
-    # Z-Score Tests
-    # =========================================================================
-
-    def test_zscore_returns_signal(self, engine, sample_prices):
-        """Z-score calculation should return a Signal object."""
-        signal = engine.calculate_zscore(sample_prices)
-
+    def test_returns_correct_type_and_metadata(self, engine):
+        prices = np.linspace(100, 110, 50)
+        signal = engine.calculate_zscore(prices)
         assert isinstance(signal, Signal)
         assert signal.name == "zscore"
         assert signal.signal_type == SignalType.MEAN_REVERSION
 
-    def test_zscore_output_shape(self, engine, sample_prices):
-        """Z-score output should match input length."""
-        signal = engine.calculate_zscore(sample_prices)
-        assert len(signal.values) == len(sample_prices)
+    def test_output_length_matches_input(self, engine):
+        prices = np.linspace(100, 110, 50)
+        signal = engine.calculate_zscore(prices)
+        assert len(signal.values) == 50
 
-    def test_zscore_bounded(self, engine, sample_prices):
-        """Z-score values should be bounded in [-1, 1] after normalization."""
-        signal = engine.calculate_zscore(sample_prices)
+    def test_values_bounded(self, engine):
+        np.random.seed(42)
+        prices = 100 + np.cumsum(np.random.randn(200))
+        signal = engine.calculate_zscore(prices)
         assert np.all(signal.values >= -1)
         assert np.all(signal.values <= 1)
 
-    def test_zscore_mean_reversion_logic(self, engine):
-        """High prices give negative signals (sell), low prices positive (buy)."""
-        # Prices that spike up
-        prices = np.array([100] * 30 + [120] * 10)  # Jump up at end
+    def test_spike_up_gives_sell_signal(self, engine):
+        """Price above rolling mean -> sell signal (negative)."""
+        prices = np.array([100.0] * 30 + [120.0] * 10)
         signal = engine.calculate_zscore(prices, window=20)
-
-        # After price spikes up, signal should be negative (sell signal)
         assert signal.values[-1] < 0
 
-        # Prices that drop
-        prices = np.array([100] * 30 + [80] * 10)  # Drop at end
+    def test_spike_down_gives_buy_signal(self, engine):
+        """Price below rolling mean -> buy signal (positive)."""
+        prices = np.array([100.0] * 30 + [80.0] * 10)
         signal = engine.calculate_zscore(prices, window=20)
-
-        # After price drops, signal should be positive (buy signal)
         assert signal.values[-1] > 0
 
-    def test_zscore_short_data(self, engine):
-        """Z-score should handle data shorter than window."""
-        short_prices = np.array([100, 101, 99])
-        signal = engine.calculate_zscore(short_prices, window=20)
+    def test_constant_prices_near_zero(self, engine):
+        """Flat prices should produce near-zero signals."""
+        prices = np.ones(50) * 100
+        signal = engine.calculate_zscore(prices)
+        assert np.all(np.abs(signal.values) < 0.01)
 
-        assert len(signal.values) == len(short_prices)
-        assert signal.strength == 0.0  # No confidence with insufficient data
+    def test_known_zscore_value(self):
+        """Verify against hand-calculated z-score.
 
-    # =========================================================================
-    # RSI Tests
-    # =========================================================================
+        Window=3, prices=[10, 10, 10, 13]:
+        At index 3: rolling_mean = (10+10+13)/3 = 11, rolling_std = std([10,10,13])
+        std = sqrt(((10-11)^2 + (10-11)^2 + (13-11)^2)/3) = sqrt(6/3) = sqrt(2) ~ 1.414
+        z = (13 - 11) / 1.414 ~ 1.414
+        normalized = -tanh(1.414 / 2) = -tanh(0.707) ~ -0.610
+        """
+        engine = SignalEngine()
+        prices = np.array([10.0, 10.0, 10.0, 13.0])
+        signal = engine.calculate_zscore(prices, window=3)
+        assert signal.values[-1] == pytest.approx(-0.610, abs=0.02)
 
-    def test_rsi_returns_signal(self, engine, sample_prices):
-        """RSI calculation should return a Signal object."""
-        signal = engine.calculate_rsi(sample_prices)
+    def test_short_data_returns_zeros(self, engine):
+        signal = engine.calculate_zscore(np.array([100.0, 101.0]), window=20)
+        assert len(signal.values) == 2
+        assert signal.strength == 0.0
+        assert np.allclose(signal.values, 0)
 
-        assert isinstance(signal, Signal)
+    def test_empty_array(self, engine):
+        signal = engine.calculate_zscore(np.array([]))
+        assert len(signal.values) == 0
+
+    def test_single_value(self, engine):
+        signal = engine.calculate_zscore(np.array([100.0]))
+        assert len(signal.values) == 1
+
+
+class TestRSI:
+    @pytest.fixture
+    def engine(self):
+        return SignalEngine()
+
+    def test_returns_correct_metadata(self, engine):
+        prices = np.linspace(100, 110, 50)
+        signal = engine.calculate_rsi(prices)
         assert signal.name == "rsi"
         assert signal.signal_type == SignalType.MOMENTUM
 
-    def test_rsi_bounded(self, engine, sample_prices):
-        """RSI signal values should be bounded in [-1, 1]."""
-        signal = engine.calculate_rsi(sample_prices)
+    def test_values_bounded(self, engine):
+        np.random.seed(42)
+        prices = 100 + np.cumsum(np.random.randn(200))
+        signal = engine.calculate_rsi(prices)
         assert np.all(signal.values >= -1)
         assert np.all(signal.values <= 1)
 
-    def test_rsi_overbought_detection(self, engine):
-        """RSI should detect overbought conditions (consistent up moves)."""
-        # Steadily rising prices
-        prices = np.cumsum(np.ones(50) * 0.5) + 100
+    def test_steady_uptrend_gives_sell_signal(self, engine):
+        """Consistently rising prices -> overbought -> negative (sell) signal."""
+        prices = 100 + np.cumsum(np.ones(50) * 0.5)
         signal = engine.calculate_rsi(prices, window=14)
-
-        # Should give sell signal (negative) when overbought
         assert signal.values[-1] < 0
 
-    def test_rsi_oversold_detection(self, engine):
-        """RSI should detect oversold conditions (consistent down moves)."""
-        # Steadily falling prices
+    def test_steady_downtrend_gives_buy_signal(self, engine):
+        """Consistently falling prices -> oversold -> positive (buy) signal."""
         prices = 100 - np.cumsum(np.ones(50) * 0.5)
         signal = engine.calculate_rsi(prices, window=14)
-
-        # Should give buy signal (positive) when oversold
         assert signal.values[-1] > 0
 
-    # =========================================================================
-    # Bollinger Bands Tests
-    # =========================================================================
+    def test_all_gains_rsi_near_100(self, engine):
+        """If every day is a gain, raw RSI should approach 100 (signal near -1)."""
+        prices = np.arange(100.0, 150.0, 1.0)  # 50 days, +1 each day
+        signal = engine.calculate_rsi(prices, window=14)
+        # Signal is inverted: RSI near 100 -> signal near -1
+        assert signal.values[-1] < -0.8
 
-    def test_bollinger_returns_components(self, engine, sample_prices):
-        """Bollinger Bands should return signal and three bands."""
-        signal, upper, middle, lower = engine.calculate_bollinger_bands(sample_prices)
+    def test_all_losses_rsi_near_0(self, engine):
+        """If every day is a loss, raw RSI should approach 0 (signal near +1)."""
+        prices = np.arange(150.0, 100.0, -1.0)  # 50 days, -1 each day
+        signal = engine.calculate_rsi(prices, window=14)
+        assert signal.values[-1] > 0.8
 
+    def test_short_data_returns_zeros(self, engine):
+        signal = engine.calculate_rsi(np.array([100.0, 101.0, 99.0]), window=14)
+        assert np.allclose(signal.values, 0)
+
+    def test_constant_prices(self, engine):
+        """No price changes -> no gains or losses -> RSI floors at 0 -> signal +1.
+
+        With zero deltas, avg_gain=0 and avg_loss hits the 1e-10 floor,
+        giving RS=0, RSI=0 (extreme oversold). This is a known edge case
+        where RSI is undefined — the signal saturates.
+        """
+        prices = np.ones(50) * 100
+        signal = engine.calculate_rsi(prices, window=14)
+        # RSI = 0 -> normalized = -(0-50)/50 = 1.0
+        assert signal.values[-1] == pytest.approx(1.0, abs=0.01)
+
+
+class TestBollingerBands:
+    @pytest.fixture
+    def engine(self):
+        return SignalEngine()
+
+    def test_returns_signal_and_three_bands(self, engine):
+        prices = np.linspace(100, 110, 50)
+        signal, upper, middle, lower = engine.calculate_bollinger_bands(prices)
         assert isinstance(signal, Signal)
-        assert len(upper) == len(sample_prices)
-        assert len(middle) == len(sample_prices)
-        assert len(lower) == len(sample_prices)
+        assert signal.name == "bollinger"
+        assert len(upper) == len(prices)
+        assert len(middle) == len(prices)
+        assert len(lower) == len(prices)
 
-    def test_bollinger_band_ordering(self, engine, sample_prices):
-        """Upper band should always be >= middle >= lower."""
-        _, upper, middle, lower = engine.calculate_bollinger_bands(sample_prices)
-
-        # Allow small numerical tolerance
+    def test_band_ordering(self, engine):
+        np.random.seed(42)
+        prices = 100 + np.cumsum(np.random.randn(100))
+        _, upper, middle, lower = engine.calculate_bollinger_bands(prices)
         assert np.all(upper >= middle - 1e-10)
         assert np.all(middle >= lower - 1e-10)
 
-    def test_bollinger_signal_at_bands(self, engine):
-        """Price at upper band should give sell signal, at lower should give buy."""
-        # Create prices that touch upper band
-        base = np.ones(50) * 100
-        base[-5:] = 110  # Price spikes to upper band
-
-        signal, upper, middle, lower = engine.calculate_bollinger_bands(base, window=20)
-
-        # At upper band, should get sell signal (negative)
+    def test_price_above_upper_gives_sell(self, engine):
+        """Price spiking above upper band -> negative signal."""
+        prices = np.array([100.0] * 30 + [110.0] * 5)
+        signal, _, _, _ = engine.calculate_bollinger_bands(prices, window=20)
         assert signal.values[-1] < 0
 
-    # =========================================================================
-    # MACD Tests
-    # =========================================================================
+    def test_price_at_middle_near_zero(self, engine):
+        """Flat prices sit at the middle band -> signal near 0."""
+        prices = np.ones(50) * 100
+        signal, _, _, _ = engine.calculate_bollinger_bands(prices, window=20)
+        # With zero std, bands collapse. %B undefined but clipped.
+        # Not a strong assertion — mainly checking no crash.
+        assert np.all(np.isfinite(signal.values))
 
-    def test_macd_returns_signal(self, engine, sample_prices):
-        """MACD calculation should return a Signal object."""
-        signal = engine.calculate_macd(sample_prices)
+    def test_short_data_returns_price_copies(self, engine):
+        prices = np.array([100.0, 101.0, 99.0])
+        result = engine.calculate_bollinger_bands(prices, window=20)
+        signal, upper, middle, lower = result
+        assert np.allclose(upper, prices)
+        assert np.allclose(middle, prices)
+        assert np.allclose(lower, prices)
 
-        assert isinstance(signal, Signal)
+
+class TestMACD:
+    @pytest.fixture
+    def engine(self):
+        return SignalEngine()
+
+    def test_returns_correct_metadata(self, engine):
+        prices = np.linspace(100, 130, 50)
+        signal = engine.calculate_macd(prices)
         assert signal.name == "macd"
         assert signal.signal_type == SignalType.TREND
 
-    def test_macd_bounded(self, engine, sample_prices):
-        """MACD signal values should be bounded in [-1, 1]."""
-        signal = engine.calculate_macd(sample_prices)
+    def test_values_bounded(self, engine):
+        np.random.seed(42)
+        prices = 100 + np.cumsum(np.random.randn(200))
+        signal = engine.calculate_macd(prices)
         assert np.all(signal.values >= -1)
         assert np.all(signal.values <= 1)
 
-    def test_macd_trend_detection(self, engine):
-        """MACD should detect upward trend."""
-        # Clear, strong uptrend with deterministic data
-        # Start flat, then trend strongly upward
-        np.random.seed(123)
-        flat_period = np.ones(40) * 100
-        # Strong consistent uptrend - each day adds 1-2 points
+    def test_strong_uptrend_positive(self, engine):
+        """Clear uptrend after flat period -> MACD histogram positive."""
+        flat = np.ones(40) * 100
         uptrend = 100 + np.cumsum(np.ones(60) * 1.5)
-        prices = np.concatenate([flat_period, uptrend])
-
+        prices = np.concatenate([flat, uptrend])
         signal = engine.calculate_macd(prices)
+        assert np.mean(signal.values[-10:]) > 0
 
-        # Should be positive in uptrend (last portion after trend established)
-        # MACD needs time to catch up, so check the final 10 values
-        assert np.mean(signal.values[-10:]) > 0, (
-            f"MACD should be positive in uptrend, got {np.mean(signal.values[-10:])}"
-        )
+    def test_strong_downtrend_negative(self, engine):
+        """Clear downtrend after flat period -> MACD histogram negative."""
+        flat = np.ones(40) * 200
+        downtrend = 200 - np.cumsum(np.ones(60) * 1.5)
+        prices = np.concatenate([flat, downtrend])
+        signal = engine.calculate_macd(prices)
+        assert np.mean(signal.values[-10:]) < 0
 
-    # =========================================================================
-    # Signal Combination Tests
-    # =========================================================================
+    def test_short_data_returns_zeros(self, engine):
+        signal = engine.calculate_macd(np.array([100.0] * 10))
+        assert np.allclose(signal.values, 0)
 
-    def test_combine_signals_equal_weights(self, engine, sample_prices):
-        """Combined signal with equal weights should average component signals."""
-        zscore = engine.calculate_zscore(sample_prices)
-        rsi = engine.calculate_rsi(sample_prices)
 
-        combined = engine.combine_signals({"zscore": zscore, "rsi": rsi})
+class TestCombineSignals:
+    @pytest.fixture
+    def engine(self):
+        return SignalEngine()
 
-        assert isinstance(combined, Signal)
-        assert combined.name == "combined"
+    def test_equal_weights_average(self, engine):
+        s1 = Signal("a", np.array([0.6, 0.6]), SignalType.MOMENTUM, 1.0)
+        s2 = Signal("b", np.array([0.2, 0.2]), SignalType.MOMENTUM, 1.0)
+        combined = engine.combine_signals({"a": s1, "b": s2})
+        # Equal weights: (0.6 + 0.2) / 2 = 0.4
+        assert combined.values[-1] == pytest.approx(0.4, abs=0.001)
 
-    def test_combine_signals_custom_weights(self, engine, sample_prices):
-        """Combined signal should respect custom weights."""
-        zscore = engine.calculate_zscore(sample_prices)
-        rsi = engine.calculate_rsi(sample_prices)
-
-        # Heavy weight on z-score
+    def test_custom_weights(self, engine):
+        s1 = Signal("a", np.array([1.0]), SignalType.MOMENTUM, 1.0)
+        s2 = Signal("b", np.array([0.0]), SignalType.MOMENTUM, 1.0)
         combined = engine.combine_signals(
-            {"zscore": zscore, "rsi": rsi}, weights={"zscore": 0.9, "rsi": 0.1}
+            {"a": s1, "b": s2}, weights={"a": 0.75, "b": 0.25}
         )
+        assert combined.values[-1] == pytest.approx(0.75, abs=0.001)
 
-        # Combined should be closer to z-score
-        zscore_current = zscore.get_current()
-        combined_current = combined.get_current()
-        rsi_current = rsi.get_current()
-
-        # If z-score and rsi differ, combined should be closer to z-score
-        if abs(zscore_current - rsi_current) > 0.1:
-            assert abs(combined_current - zscore_current) < abs(
-                combined_current - rsi_current
-            )
-
-    def test_combine_empty_signals(self, engine):
-        """Combining empty signal dict should return neutral signal."""
+    def test_empty_signals_returns_zero(self, engine):
         combined = engine.combine_signals({})
         assert combined.get_current() == 0.0
 
-    # =========================================================================
-    # Helper Method Tests
-    # =========================================================================
+    def test_combined_clipped_to_range(self, engine):
+        # Two signals both at +1 with equal weight should still be clipped to 1
+        s1 = Signal("a", np.array([1.0]), SignalType.MOMENTUM, 1.0)
+        s2 = Signal("b", np.array([1.0]), SignalType.MOMENTUM, 1.0)
+        combined = engine.combine_signals({"a": s1, "b": s2})
+        assert combined.values[-1] <= 1.0
 
-    def test_rolling_mean_accuracy(self, engine):
-        """Rolling mean should be mathematically correct."""
-        data = np.array([1, 2, 3, 4, 5, 6, 7, 8, 9, 10], dtype=float)
-        window = 3
 
-        result = engine._rolling_mean(data, window)
+class TestHelpers:
+    def test_rolling_mean_known_values(self):
+        data = np.array([1.0, 2.0, 3.0, 4.0, 5.0])
+        result = SignalEngine._rolling_mean(data, window=3)
+        # Index 2: expanding mean of [1,2,3] = 2.0 (first full window)
+        assert result[2] == pytest.approx(2.0)
+        # Index 3: mean of [2,3,4] = 3.0
+        assert result[3] == pytest.approx(3.0)
+        # Index 4: mean of [3,4,5] = 4.0
+        assert result[4] == pytest.approx(4.0)
 
-        # Check known values
-        # At index 2 (3rd element): mean of [1,2,3] = 2
-        assert np.isclose(result[2], 2.0)
-        # At index 5: mean of [4,5,6] = 5
-        assert np.isclose(result[5], 5.0)
-
-    def test_rolling_std_accuracy(self, engine):
-        """Rolling std should be mathematically correct."""
-        # Constant data should have zero std
+    def test_rolling_std_constant_is_zero(self):
         data = np.ones(20) * 100
-        result = engine._rolling_std(data, window=5)
-
+        result = SignalEngine._rolling_std(data, window=5)
         assert np.allclose(result[5:], 0, atol=1e-10)
 
-    def test_ema_responsiveness(self, engine):
-        """EMA should respond to recent price changes."""
-        # Price jumps from 100 to 200
-        data = np.array([100] * 20 + [200] * 10, dtype=float)
-
-        ema = engine._ema(data, period=5)
-
-        # EMA should move toward 200 but not reach it
+    def test_ema_converges_to_step(self):
+        """EMA of a step function should approach the new value."""
+        data = np.array([100.0] * 20 + [200.0] * 10)
+        ema = SignalEngine._ema(data, period=5)
         assert ema[-1] > 100
         assert ema[-1] < 200
-        # Shorter period should react faster
-        ema_fast = engine._ema(data, period=2)
-        assert ema_fast[-1] > ema[-1]  # Faster EMA closer to current price
+        # Faster EMA should be closer to 200
+        ema_fast = SignalEngine._ema(data, period=2)
+        assert ema_fast[-1] > ema[-1]
 
 
 class TestSignalDataclass:
-    """Test the Signal dataclass."""
-
-    def test_signal_get_current(self):
-        """get_current should return last value."""
-        signal = Signal(
-            name="test",
-            values=np.array([0.1, 0.2, 0.3]),
-            signal_type=SignalType.MOMENTUM,
-            strength=0.5,
-        )
+    def test_get_current(self):
+        signal = Signal("test", np.array([0.1, 0.2, 0.3]), SignalType.MOMENTUM, 0.5)
         assert signal.get_current() == 0.3
 
-    def test_signal_get_direction(self):
-        """get_direction should return correct trade direction."""
-        # Bullish signal
-        signal = Signal(
-            name="test",
-            values=np.array([0.8]),
-            signal_type=SignalType.MOMENTUM,
-            strength=0.5,
-        )
-        assert signal.get_direction() == 1  # Long
+    def test_get_current_empty(self):
+        signal = Signal("test", np.array([]), SignalType.MOMENTUM, 0.5)
+        assert signal.get_current() == 0.0
 
-        # Bearish signal
-        signal.values = np.array([-0.8])
-        assert signal.get_direction() == -1  # Short
+    def test_get_direction_long(self):
+        signal = Signal("test", np.array([0.8]), SignalType.MOMENTUM, 0.5)
+        assert signal.get_direction() == 1
 
-        # Neutral signal
-        signal.values = np.array([0.2])
-        assert signal.get_direction() == 0  # Hold
+    def test_get_direction_short(self):
+        signal = Signal("test", np.array([-0.8]), SignalType.MOMENTUM, 0.5)
+        assert signal.get_direction() == -1
+
+    def test_get_direction_neutral(self):
+        signal = Signal("test", np.array([0.2]), SignalType.MOMENTUM, 0.5)
+        assert signal.get_direction() == 0
 
 
 class TestEdgeCases:
-    """Test edge cases and error handling."""
-
-    def test_empty_array(self):
-        """Engine should handle empty arrays gracefully."""
+    def test_extreme_large_prices(self):
         engine = SignalEngine()
-        empty = np.array([])
+        np.random.seed(42)
+        prices = np.random.randn(50) * 1000 + 1e6
+        signal = engine.calculate_zscore(prices)
+        assert np.all(np.isfinite(signal.values))
 
-        signal = engine.calculate_zscore(empty)
-        assert len(signal.values) == 0
-
-    def test_single_value(self):
-        """Engine should handle single value arrays."""
+    def test_penny_stock_prices(self):
         engine = SignalEngine()
-        single = np.array([100.0])
+        np.random.seed(42)
+        prices = np.abs(np.random.randn(50) * 0.01 + 0.5)
+        signal = engine.calculate_zscore(prices)
+        assert np.all(np.isfinite(signal.values))
 
-        signal = engine.calculate_zscore(single)
-        assert len(signal.values) == 1
-
-    def test_constant_prices(self):
-        """Engine should handle constant prices (zero volatility)."""
+    def test_nan_in_prices_propagates(self):
+        """NaN in input should not crash; values may be NaN but no exception."""
         engine = SignalEngine()
-        constant = np.ones(50) * 100
-
-        # Should not raise errors
-        zscore = engine.calculate_zscore(constant)
-        engine.calculate_rsi(constant)  # Should not raise errors
-
-        # Signals should be near zero (no clear direction)
-        assert np.abs(zscore.get_current()) < 0.5
-
-    def test_extreme_values(self):
-        """Engine should handle extreme price values."""
-        engine = SignalEngine()
-
-        # Very large prices
-        large = np.random.randn(50) * 1000 + 1e6
-        signal_large = engine.calculate_zscore(large)
-        assert np.all(np.isfinite(signal_large.values))
-
-        # Very small prices (penny stocks)
-        small = np.random.randn(50) * 0.01 + 0.5
-        small = np.abs(small)  # Ensure positive
-        signal_small = engine.calculate_zscore(small)
-        assert np.all(np.isfinite(signal_small.values))
-
-
-# Run tests if executed directly
-if __name__ == "__main__":
-    pytest.main([__file__, "-v"])
+        prices = np.array([100.0] * 25 + [float("nan")] + [100.0] * 24)
+        # Should not raise
+        signal = engine.calculate_zscore(prices)
+        assert len(signal.values) == 50

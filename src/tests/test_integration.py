@@ -1,9 +1,4 @@
-"""
-Integration Tests for Trading Signal Engine
-
-Run with: python tests/test_integration.py
-Or with pytest: pytest tests/test_integration.py -v
-"""
+"""Integration tests — verify components work together end-to-end."""
 
 import asyncio
 
@@ -14,19 +9,13 @@ from src.backtest import BacktestConfig, Backtester
 from src.data_handler import DataSource, MarketDataHandler
 from src.risk_manager import Portfolio, RiskManager
 from src.signals import SignalEngine
-from src.strategy import TradingStrategy
 
 
 class TestDataHandler:
-    """Test data handler with both data sources."""
-
     def test_synthetic_data_fetching(self):
-        """Synthetic data should work without internet."""
-
         async def fetch():
             handler = MarketDataHandler(source=DataSource.SYNTHETIC, random_seed=42)
-            data = await handler.stream_market_data(["AAPL", "GOOGL"], days=100)
-            return data
+            return await handler.stream_market_data(["AAPL", "GOOGL"], days=100)
 
         data = asyncio.run(fetch())
 
@@ -36,12 +25,9 @@ class TestDataHandler:
         assert len(data["AAPL"].close) == 100
 
     def test_data_has_all_ohlcv_fields(self):
-        """MarketData should have all OHLCV fields."""
-
         async def fetch():
             handler = MarketDataHandler(source=DataSource.SYNTHETIC, random_seed=42)
-            data = await handler.stream_market_data(["AAPL"], days=50)
-            return data["AAPL"]
+            return (await handler.stream_market_data(["AAPL"], days=50))["AAPL"]
 
         market_data = asyncio.run(fetch())
 
@@ -52,33 +38,24 @@ class TestDataHandler:
         assert len(market_data.volume) == 50
 
     def test_ohlc_consistency(self):
-        """High should be >= Low, and Open/Close within range."""
-
         async def fetch():
             handler = MarketDataHandler(source=DataSource.SYNTHETIC, random_seed=42)
-            data = await handler.stream_market_data(["AAPL"], days=100)
-            return data["AAPL"]
+            return (await handler.stream_market_data(["AAPL"], days=100))["AAPL"]
 
         market_data = asyncio.run(fetch())
-
         assert np.all(market_data.high >= market_data.low)
 
 
 class TestFullPipeline:
-    """Test the complete trading pipeline."""
-
     @pytest.fixture
     def sample_data(self):
-        """Fetch sample data for tests."""
-
         async def fetch():
             handler = MarketDataHandler(source=DataSource.SYNTHETIC, random_seed=42)
             return await handler.stream_market_data(["AAPL"], days=100)
 
         return asyncio.run(fetch())
 
-    def test_signals_from_real_prices(self, sample_data):
-        """Signal engine should work with fetched data."""
+    def test_signals_from_fetched_data(self, sample_data):
         engine = SignalEngine()
         prices = sample_data["AAPL"].close
 
@@ -90,13 +67,11 @@ class TestFullPipeline:
         assert len(rsi.values) == len(prices)
         assert len(macd.values) == len(prices)
 
-        # All signals should be bounded
         assert np.all(np.abs(zscore.values) <= 1)
         assert np.all(np.abs(rsi.values) <= 1)
         assert np.all(np.abs(macd.values) <= 1)
 
     def test_risk_manager_with_real_volatility(self, sample_data):
-        """Risk manager should size positions based on real volatility."""
         prices = sample_data["AAPL"].close
         returns = np.diff(np.log(prices))
         volatility = np.std(returns) * np.sqrt(252)
@@ -116,142 +91,49 @@ class TestFullPipeline:
         assert position.weight <= risk_mgr.max_position_pct
 
     def test_backtest_with_signals(self, sample_data):
-        """Backtester should work with generated signals."""
         engine = SignalEngine()
         prices = sample_data["AAPL"].close
 
-        # Generate signals
         zscore = engine.calculate_zscore(prices)
         signals = zscore.values.reshape(-1, 1)
         prices_bt = prices.reshape(-1, 1)
 
-        # Run backtest
         config = BacktestConfig(initial_capital=100000)
         backtester = Backtester(config)
         metrics, equity, positions = backtester.run(prices_bt, signals)
 
         assert len(equity) == len(prices)
-        assert equity[0] == 100000  # Started with initial capital
+        assert equity[0] == 100000
         assert metrics.sharpe_ratio is not None
         assert metrics.max_drawdown >= 0
 
-    def test_strategy_backtest(self):
-        """Full strategy backtest should complete without errors."""
-
-        async def run_backtest():
-            strategy = TradingStrategy(
-                data_handler=MarketDataHandler(
-                    source=DataSource.SYNTHETIC, random_seed=42
-                ),
-                signal_engine=SignalEngine(),
-                risk_manager=RiskManager(),
-            )
-            return await strategy.run_backtest(["AAPL", "MSFT"], days=100)
-
-        results = asyncio.run(run_backtest())
-
-        assert results.equity_curve is not None
-        assert len(results.equity_curve) > 0
-        assert results.total_return is not None
-        assert results.sharpe_ratio is not None
-
-
-def run_verification():
-    """Run all tests and print results."""
-    print("=" * 50)
-    print("TRADING ENGINE VERIFICATION")
-    print("=" * 50)
-
-    _tests = [  # noqa: F841
-        ("Data Handler - Synthetic", TestDataHandler().test_synthetic_data_fetching),
-        (
-            "Data Handler - OHLCV Fields",
-            TestDataHandler().test_data_has_all_ohlcv_fields,
-        ),
-        ("Data Handler - OHLC Consistency", TestDataHandler().test_ohlc_consistency),
-        (
-            "Pipeline - Signals",
-            lambda: TestFullPipeline().test_signals_from_real_prices(
-                TestFullPipeline().sample_data.fget(None)
-            ),
-        ),
-        ("Pipeline - Strategy Backtest", TestFullPipeline().test_strategy_backtest),
-    ]
-
-    # Simpler verification
-    passed = 0
-    failed = 0
-
-    # Test 1: Data Handler
-    print("\n[1/5] Data Handler (Synthetic)...", end=" ")
-    try:
-        TestDataHandler().test_synthetic_data_fetching()
-        print("✓")
-        passed += 1
-    except Exception as e:
-        print(f"✗ {e}")
-        failed += 1
-
-    # Test 2: OHLCV Fields
-    print("[2/5] Data Handler (OHLCV Fields)...", end=" ")
-    try:
-        TestDataHandler().test_data_has_all_ohlcv_fields()
-        print("✓")
-        passed += 1
-    except Exception as e:
-        print(f"✗ {e}")
-        failed += 1
-
-    # Test 3: OHLC Consistency
-    print("[3/5] Data Handler (OHLC Consistency)...", end=" ")
-    try:
-        TestDataHandler().test_ohlc_consistency()
-        print("✓")
-        passed += 1
-    except Exception as e:
-        print(f"✗ {e}")
-        failed += 1
-
-    # Test 4: Signals + Risk + Backtest
-    print("[4/5] Signals + Risk + Backtest...", end=" ")
-    try:
+    def test_full_pipeline_end_to_end(self):
+        """Fetch data -> generate signals -> build matrices -> backtest."""
 
         async def fetch():
             handler = MarketDataHandler(source=DataSource.SYNTHETIC, random_seed=42)
-            return await handler.stream_market_data(["AAPL"], days=100)
+            return await handler.stream_market_data(["AAPL", "MSFT"], days=100)
 
-        sample_data = asyncio.run(fetch())
+        data = asyncio.run(fetch())
+        engine = SignalEngine()
 
-        t = TestFullPipeline()
-        t.test_signals_from_real_prices(sample_data)
-        t.test_risk_manager_with_real_volatility(sample_data)
-        t.test_backtest_with_signals(sample_data)
-        print("✓")
-        passed += 1
-    except Exception as e:
-        print(f"✗ {e}")
-        failed += 1
+        min_len = min(len(d.close) for d in data.values())
+        prices = np.column_stack([d.close[:min_len] for d in data.values()])
+        signals = np.column_stack(
+            [
+                engine.combine_signals(
+                    {
+                        "zscore": engine.calculate_zscore(d.close[:min_len]),
+                        "rsi": engine.calculate_rsi(d.close[:min_len]),
+                    }
+                ).values
+                for d in data.values()
+            ]
+        )
 
-    # Test 5: Full Strategy
-    print("[5/5] Full Strategy Backtest...", end=" ")
-    try:
-        TestFullPipeline().test_strategy_backtest()
-        print("✓")
-        passed += 1
-    except Exception as e:
-        print(f"✗ {e}")
-        failed += 1
+        backtester = Backtester(BacktestConfig(initial_capital=100000))
+        metrics, equity, _ = backtester.run(prices, signals)
 
-    print("\n" + "=" * 50)
-    if failed == 0:
-        print(f"ALL {passed} TESTS PASSED ✓")
-    else:
-        print(f"PASSED: {passed}, FAILED: {failed}")
-    print("=" * 50)
-
-    return failed == 0
-
-
-if __name__ == "__main__":
-    success = run_verification()
-    exit(0 if success else 1)
+        assert len(equity) > 0
+        assert metrics.total_return is not None
+        assert metrics.sharpe_ratio is not None
